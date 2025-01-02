@@ -1,0 +1,187 @@
+---
+title: "Wine Quality Analysis and Clustering"
+author: "Anu Thatikonda"
+date: "2025-01-02"
+output: pdf_document
+---
+
+```{r code, warning=FALSE}
+# load wine data
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(kohonen)
+red_wine <- read.csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv", sep = ";")
+white_wine <- read.csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv", sep = ";")
+
+head(red_wine)
+head(white_wine)
+
+str(red_wine)
+str(white_wine)
+
+
+red_wine$wine_type <- "red"
+white_wine$wine_type <- "white"
+wine <- rbind(red_wine, white_wine)
+
+head(wine)
+which(is.na(wine))
+
+# exploratory data analysis
+
+# box plot
+ggplot(wine, aes(x = wine_type, y = quality, fill = wine_type)) +
+  geom_boxplot() +
+  labs(title = "Box plot of Wine Quality by Type")
+
+# Histograms
+ggplot(wine, aes(x = alcohol, fill = wine_type)) +
+  geom_histogram(binwidth = 0.5, position = "dodge", alpha = 0.7) +
+  labs(title = "Hist of Alcohol Cont by Wine Type") +
+  theme_minimal()
+
+ggplot(wine, aes(x = pH, fill = wine_type)) +
+  geom_histogram(binwidth = 0.1, position = "dodge", alpha = 0.7) +
+  labs(title = "Hist of pH by Wine Type") +
+  theme_minimal()
+
+ggplot(wine, aes(x = quality, fill = wine_type)) +
+  geom_histogram(binwidth = 1, position = "dodge", alpha = 0.7) +
+  labs(title = "Hist of Quality by Wine Type") +
+  theme_minimal()
+
+
+cor_matrix <- cor(wine[, !names(wine) %in% c("quality", "wine_type")])
+
+# Plot heatmap
+heatmap(cor_matrix, 
+        col = colorRampPalette(c("blue", "white", "red"))(100), 
+        scale = "none",          
+        Rowv = NA,             
+        Colv = NA,               
+        margins = c(6, 6))
+```
+## summary of data quality and characterstics
+
+### There are no missing values in the dataset. 
+### The dataset includes two types of wine: red and white.
+### Wines have quality ratings from 3 to 9, with the majority having a quality rating around 5 or 6.
+
+### Some properties exhibit outliers with varying distributions and ranges.
+
+
+## outliers and associations:
+
+### From the boxplot we can see that there are couple outliers in both types of wine.
+
+### From histograms we can say that the alcohol content, pH level and quality of wine in white type is greater than the red wine type.
+
+### From the heat map we can see that there is strong negative correlation for alcohol content and density that means Higher alcohol content is associated with lower density.
+
+### There is a positive correlation for total.sulfur.dioxide and free.sulfur.dioxide These variables tend to increase or decrease together and negative correlation with volatile acidity. Means Wines with higher volatile acidity tend to have lower sulfur dioxide levels.
+
+### Alcohol has negative correlation with chlorides, residual sugars, total.sulfur.dioxide and free.sulfur.dioxide. i.e., Higher alcohol content is associated with lower levels of these properties.
+
+### Volatile acidity has negative correlation with citric acid. Wines with higher citric acid levels tend to have lower volatile acidity.
+
+### pH also has negative correlation with citric acid. i.e., Wines with higher citric acid levels tend to have lower pH values.
+
+### Density shows positive correlation with residual sugar and  sulfur dioxides that means higher density is associated with higher levels of residual sugars and sulfur dioxides.
+
+
+```{r code1, warning=FALSE }
+library(FactoMineR)
+library(factoextra)
+library(cluster)
+
+wine_dats <- wine[,1:11]
+head(wine_dats)
+
+# principal comp
+pc <- prcomp(scale(wine_dats), center = FALSE, scale = FALSE)
+
+
+plot(pc)
+names(pc)
+
+# Calculate percentage of variance explained
+
+per_var_expl <- 100*((pc$sdev)^2)/(sum(((pc$sdev)^2)))
+
+names(per_var_expl) <- paste("PC", 1:11, sep = ":")
+
+
+barplot(per_var_expl, xlab = "PC", ylab = "% var explained", main = "Scree Plot")
+
+# no.of comp with variance greater than 90 for kmeans
+num_components <- sum(cumsum(per_var_expl) > 90)
+PC <- pc$x[, 1:5]
+head(PC)
+
+# to determine no of clusters
+for (k in 2:5) {
+  km <- kmeans(PC, centers = k, nstart = 15)
+  silhouette_plot <- silhouette(km$cluster, dist(PC))
+  plot(silhouette_plot, main = "Silhouette Plot for k =", k)
+}
+
+# The silhouette plots indicate that the optimal K value is around 4, which indicates
+# that clusters are well-separated and data points are close to their 
+# respective cluster centroids.
+
+
+# k means
+km <- kmeans(PC, centers = 4, nstart = 15)
+
+# visualize using score plot and color according to wine color
+temp <- data.frame(PC, wine$wine_type)
+names(temp)[6] <- "wine_type"
+
+
+p <- ggplot(temp, aes(PC1, PC2, color = wine_type, shape = wine_type)) + geom_point()
+p + labs(title = "Score Plot", x = "PC1 scores", y = "PC2 score")
+
+
+
+# fit SOM
+
+som_grid <- somgrid(xdim = 5, ydim = 5, topo = "hexagonal")  
+som_model <- som(scale(wine_dats), grid = som_grid, rlen = 100, alpha = c(0.05, 0.01), keep.data = TRUE)
+
+color = ifelse(wine$wine_type == "red","red", "blue")
+
+
+# Plot the SOM using wine color
+
+plot(som_model, type = "mapping", col = color)
+
+
+codes <- som_model$codes[[1]]
+hc <- hclust(dist(codes))
+plot(hc)
+
+
+# component plane plots
+for (i in 1:11){
+  plot(som_model, type = "property", property=codes[,i], main = colnames(codes)[i])
+}
+```
+
+
+### The wine data is reduced in dimensionality using Principal Components Analysis (PCA) before clustering by K-means. Data variance is captured in part by PCA by transforming the original variables into orthogonal components (PCs).
+
+
+### SOM does not explicitly perform dimensionality reduction. During training, the SOM algorithm automatically learns a low-dimensional representation of the input data.
+
+### Data points are represented as points in a two-dimensional space, where PCs are plotted on a plane. In the scoreplot, the original variables are compared with the clusters identified by k-means.
+
+
+
+### Each node of the SOM represents a cluster or a group of similar data points. Using hierarchical clustering, codebook vectors can be visualized as a dendrogram, showing how the clusters are arranged hierarchically.
+
+### Based on the centroids of the clusters defined by the PCs, k-means clustering identifies the clusters. Depending on which variables contributed most to each PC, the interpretation of these clusters may differ.
+
+### Using cluster analysis of the codebook vectors, we are able to identify groups of similar prototypes that were learned by the SOM. Based on the SOM's interpretation of these clusters, we may be able to understand the underlying structure of the dataset.
+
+
